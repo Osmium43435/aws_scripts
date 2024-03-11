@@ -1,0 +1,62 @@
+# Create an IAM role for Lambda to use, for creating account assignments of permission sets in IAM Identity Center (formerly SSO)
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation template for Lambda to use, for creating account assignments of permission sets in IAM Identity Center (formerly SSO)
+
+Parameters:
+# Create a parameter for the IAM role name:
+  RoleName:
+    Type: String
+    Description: IAM role name
+    MinLength: 1
+    MaxLength: 64
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters and underscores.
+# Create a parameter for the IAM policy name:
+  PolicyName:
+    Type: String
+    Description: IAM policy name
+    MinLength: 1
+    MaxLength: 64
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters and underscores.
+# Create a parameter for the SSO instance ID:
+  SSOInstanceID:
+    Type: String
+    Description: SSO Instance ID
+
+Resources:
+# Create the IAM role:
+  SSOAutomationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      # Create a trust policy which allows Lambda to assume:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+# Create an IAM policy allowing SSO createAccountAssignment only on the specific SSO instance ID
+  SSOAutomationpolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Ref PolicyName
+      Description: Allows SSO createAccountAssignment only on the specific SSO instance ID
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - sso:CreateAccountAssignment
+            # Reference the SSO instance ID ARN:
+            Resource:
+              - !Sub 'arn:aws:sso:::instance/${SSOInstanceID}' # Allow only the SSO instance ID specified
+              - 'arn:aws:sso:::account/*' # Allow creating assignments in any account
+              - !Sub 'arn:aws:sso:::permissionSet/${SSOInstanceID}/*' # Allow creating assignments with any permission set in the SSO instance
+      Roles:
+        - !Ref SSOAutomationRole

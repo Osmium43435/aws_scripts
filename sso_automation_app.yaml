@@ -1,0 +1,168 @@
+# Create an IAM role for Lambda to use, for creating account assignments of permission sets in IAM Identity Center (formerly SSO)
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation template for Lambda to use, for creating account assignments of permission sets in IAM Identity Center (formerly SSO)
+
+Parameters:
+# Create a parameter for the IAM role name:
+  RoleName:
+    Type: String
+    Description: IAM role name
+    Default: SSOAutomationLambdaRole
+    MinLength: 1
+    MaxLength: 64
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters and underscores.
+# Create a parameter for the IAM policy name:
+  PolicyName:
+    Type: String
+    Description: IAM policy name
+    Default: SSOAutomationLambdaPolicy
+    MinLength: 1
+    MaxLength: 64
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters and underscores.
+# Create a parameter for the SSO instance ID:
+  SSOInstanceID:
+    Type: String
+    Description: SSO Instance ID
+# Create a parameter for the SSO instance arn:
+  SSOInstanceARN:
+    Type: String
+    Description: SSO Instance ARN
+# Create a parameter for the SSO permission set ARN:
+  SSOPermissionSetARN:
+    Type: String
+    Description: SSO Permission Set ARN
+# Create a parameter for the SSO principal ID (Group ID):
+  SSOPrincipalID:
+    Type: String
+    Description: SSO Principal ID (Group ID)
+# Create a parameter for the EventBridge bus name:
+  EventBusName:
+    Type: String
+    Description: EventBridge bus name
+    Default: default
+    MinLength: 1
+    MaxLength: 256
+    AllowedPattern: '^[a-z0-9-]+$'
+    ConstraintDescription: Must begin with a letter and contain only lowercase letters, numbers, and hyphens. This bus must contain aws.controltower events
+# Create a parameter for the EventBridge rule name:
+  EventRuleName:
+    Type: String
+    Description: EventBridge rule name
+    Default: SSOAutomationRule
+    MinLength: 1
+    MaxLength: 64
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters and underscores.
+
+Resources:
+# Create the IAM role for Lambda to use SSO:
+  SSOAutomationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      # Create a trust policy which allows Lambda to assume:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+# Create an IAM policy allowing SSO createAccountAssignment only on the specific SSO instance ID
+  SSOAutomationpolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Ref PolicyName
+      Description: Allows SSO createAccountAssignment only on the specific SSO instance ID
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - sso:CreateAccountAssignment
+            # Reference the SSO instance ID ARN:
+            Resource:
+              - !Sub 'arn:aws:sso:::instance/${SSOInstanceID}' # Allow only the SSO instance ID specified
+              - 'arn:aws:sso:::account/*' # Allow creating assignments in any account
+              - !Sub 'arn:aws:sso:::permissionSet/${SSOInstanceID}/*' # Allow creating assignments with any permission set in the SSO instance
+      Roles:
+        - !Ref SSOAutomationRole
+
+# Create a Lambda function to create account assignments of permission sets in IAM Identity Center (formerly SSO):
+  SSOAutomationLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: SSOAutomationLambda
+      Description: Lambda function to create account assignments of permission sets in IAM Identity Center (formerly SSO)
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt SSOAutomationRole.Arn
+      # Use python code defined in this cloudformation template below
+      Code:
+        ZipFile: |
+          # Import the boto3 library to utilize the AWS Python SDK, and botocore exceptions for error handling
+          # Import json for returning the response
+          # Import os for getting environment variables
+          import boto3
+          from botocore.exceptions import ClientError
+          import json
+          import os
+
+          def lambda_handler(event, context):
+            # Create empty response
+            create_account_assignment_response = ""
+            # Call the AWS SSO API to create an account permission set assignment, storing the response in "create_account_assignment_response"
+            try:
+              sso_client = boto3.client('sso-admin')
+              create_account_assignment_response = sso_client.create_account_assignment(
+                InstanceArn = os.environ['INSTANCE_ARN'], # SSO Instance ARN in which to create assignment
+                PermissionSetArn = os.environ['PERMISSION_SET_ARN'], # ARN of permission set
+                TargetType = 'AWS_ACCOUNT', # Entity type for assignment - AWS_ACCOUNT
+                TargetId = event["detail"]["serviceEventDetails"]["createManagedAccountStatus"]["account"]["accountId"], # AWS Account ID to create assignment for
+                PrincipalType = 'GROUP', # Type of principal - USER | GROUP
+                PrincipalId = os.environ['PRINCIPAL_ID'] # ID of group to assign permission set to
+              )
+            # Error handling, printing to screen and storing the response in "create_account_assignment_response"
+            except ClientError as error:
+              print(f"Couldn't complete account-permission set assignment. Here's the error: {error.response["Error"]["Message"]}")
+              create_account_assignment_response = error.response["Error"]["Message"]
+            # Return the response of the create_account_assignment action
+            return {
+              'statusCode': 200,
+              'body': json.dumps(create_account_assignment_response)
+            }
+      Timeout: 30
+      Environment:
+        Variables:
+          INSTANCE_ARN: !Ref SSOInstanceARN
+          PERMISSION_SET_ARN: !Ref SSOPermissionSetARN
+          PRINCIPAL_ID: !Ref SSOPrincipalID
+
+  # Create an EventBridge rule to trigger the Lambda function when Control Tower account creation events occur:
+  EventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Control Tower account creation
+      EventBusName: !Ref EventBusName
+      EventPattern:
+        source:
+          - aws.controltower
+        detail-type:
+          - AWS Service Event via CloudTrail
+        detail:
+          eventName:
+            - CreateManagedAccount
+          serviceEventDetails:
+            createManagedAccountStatus:
+              state:
+                - SUCCEEDED
+      Name: !Ref EventRuleName
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt SSOAutomationLambda.Arn
+          Id: SSOAutomationLambda

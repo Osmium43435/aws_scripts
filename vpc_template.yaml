@@ -1,0 +1,231 @@
+# Create a CloudFormation template that provides a baseline VPC with additional configurations for VPC flow logs, transit gateway attachment in tgw subnet in each VPC, and Route 53 forwarding rule associations
+AWSTemplateFormatVersion: 2010-09-09
+Description: Create a baseline VPC with additional configurations for VPC flow logs, transit gateway attachment in tgw subnet in each VPC, and Route 53 forwarding rule associations
+Parameters:
+  # Transit Gateway details, for making the TGW attachment
+  TransitGatewayId:
+    Type: String
+    Default: TransitGatewayId
+    Description: Enter the ID of the transit gateway.
+  
+  # VPC details:
+  VPCName:
+    Type: String
+    Default: VPCName
+    Description: Enter the name for the VPC.
+    AllowedPattern: "[a-zA-Z0-9-]+"
+  VPCCidrBlock:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: Enter the CIDR block for the VPC.
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+  
+  # Create a choice for number of subnets, supports 1-3 subnets
+  NumberOfSubnets:
+    Type: Number
+    Default: 1
+    Description: Enter the number of subnets to create in the VPC.
+    AllowedValues:
+      - 1
+      - 2
+      - 3
+  
+  # Subnet 1 Details:
+  Subnet1Name:
+    Type: String
+    Default: Public
+    Description: Enter the name for the subnet 1.
+  Subnet1CidrBlock:
+    Type: String
+    Default: 10.0.1.0/24
+    Description: Enter the CIDR block for the subnet 1.
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+  Subnet1AvailabilityZone:
+    Type: String
+    Default: us-east-1a
+    Description: Enter the availability zone for subnet 1.
+  
+  # Subnet 2 Details:
+  Subnet2Name:
+    Type: String
+    Default: Private
+    Description: Enter the name for the subnet 2.
+  Subnet2CidrBlock:
+    Type: String
+    Default: 10.0.2.0/24
+    Description: Enter the CIDR block for the subnet 2.
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+  Subnet2AvailabilityZone:
+    Type: String
+    Default: us-east-1b
+    Description: Enter the availability zone for subnet 2.
+  
+  # Subnet 3 Details:
+  Subnet3Name:
+    Type: String
+    Default: Private
+    Description: Enter the name for the subnet 3.
+    Condition: BuildSubnet3
+  Subnet3CidrBlock:
+    Type: String
+    Default: 10.0.3.0/24
+    Description: Enter the CIDR block for the subnet 3.
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+  Subnet3AvailabilityZone:
+    Type: String
+    Default: us-east-1c
+    Description: Enter the availability zone for subnet 3.
+  
+  # Specify the IDs of the Route 53 resolver rules to associate with the VPC
+  Route53Rule1:
+    Type: String
+    Default: Route53Rule1
+    Description: Enter the ID of the Route 53 resolver rule 1.
+  Route53Rule2:
+    Type: String
+    Default: Route53Rule2
+    Description: Enter the ID of the Route 53 resolver rule 2.
+  Route53Rule3:
+    Type: String
+    Default: Route53Rule2
+    Description: Enter the ID of the Route 53 resolver rule 2.
+  Route53Rule4:
+    Type: String
+    Default: Route53Rule2
+    Description: Enter the ID of the Route 53 resolver rule 2.
+  Route53Rule5:
+    Type: String
+    Default: Route53Rule2
+    Description: Enter the ID of the Route 53 resolver rule 2.
+  Route53Rule6:
+    Type: String
+    Default: Route53Rule2
+    Description: Enter the ID of the Route 53 resolver rule 2.
+
+Conditions:
+  BuildSubnet2: !Not [ !Equals [!Ref NumberOfSubnets, 1] ]
+  BuildSubnet3: !Equals [!Ref NumberOfSubnets, 3]
+
+
+# Create the resources
+Resources:
+  # Create the VPC with the specified CIDR block and enable DNS support and hostnames
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VPCCidrBlock
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: VPC
+  
+  # Create the subnets
+  Subnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref Subnet1CidrBlock
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref Subnet1AvailabilityZone
+      Tags:
+        - Key: Name
+          Value: !Ref Subnet1Name
+  Subnet2:
+    Type: AWS::EC2::Subnet
+    Condition: BuildSubnet2
+    Properties:
+      CidrBlock: !Ref Subnet2CidrBlock
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref Subnet2AvailabilityZone
+      Tags:
+        - Key: Name
+          Value: !Ref Subnet2Name
+  Subnet3: 
+    Type: AWS::EC2::Subnet
+    Condition: BuildSubnet3
+    Properties:
+      CidrBlock: !Ref Subnet3CidrBlock
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref Subnet3AvailabilityZone
+      Tags:
+        - Key: Name
+          Value: !Ref Subnet3Name
+
+  # Route53 Resolver Rule Associations for this VPC to the following rules        
+  Route53ResolverRule1Association:
+    Type: AWS::Route53Resolver::ResolverRuleAssociation
+    Properties:
+      ResolverRuleId: !Ref Route53Rule1
+      VPCId: !Ref VPC
+  Route53ResolverRule2Association:
+    Type: AWS::Route53Resolver::ResolverRuleAssociation
+    Properties:
+      ResolverRuleId: !Ref Route53Rule2
+      VPCId: !Ref VPC
+  Route53ResolverRule3Association:
+    Type: AWS::Route53Resolver::ResolverRuleAssociation
+    Properties:
+      ResolverRuleId: !Ref Route53Rule3
+      VPCId: !Ref VPC
+  Route53ResolverRule4Association:
+    Type: AWS::Route53Resolver::ResolverRuleAssociation
+    Properties:
+      ResolverRuleId: !Ref Route53Rule3
+      VPCId: !Ref VPC
+  Route53ResolverRule5Association:
+    Type: AWS::Route53Resolver::ResolverRuleAssociation
+    Properties:
+      ResolverRuleId: !Ref Route53Rule3
+      VPCId: !Ref VPC
+  Route53ResolverRule6Association:
+    Type: AWS::Route53Resolver::ResolverRuleAssociation
+    Properties:
+      ResolverRuleId: !Ref Route53Rule3
+      VPCId: !Ref VPC
+
+  # Create Transit Gateway Associations for all subnets in this VPC
+  TransitGatewayAssociation:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Properties:
+      SubnetIds:
+        - !Ref Subnet1
+      TransitGatewayId: !Ref TransitGatewayId
+      VpcId: !Ref VPC
+  
+  # Create a route table for the VPC, with reachability to the transit gateway:
+  EnterpriseSubnetRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: EnterpriseSubnetRouteTable
+  
+  # Create a default route for the VPC to the transit gateway attachment:
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      RouteTableId: !Ref EnterpriseSubnetRouteTable
+      TransitGatewayId: !Ref TransitGatewayId
+    DependsOn: TransitGatewayAssociation
+
+  # Create associations between the subnets and the route table:
+  Subnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref EnterpriseSubnetRouteTable
+      SubnetId: !Ref Subnet1
+  Subnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: BuildSubnet2
+    Properties:
+      RouteTableId: !Ref EnterpriseSubnetRouteTable
+      SubnetId: !Ref Subnet2
+  Subnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: BuildSubnet3
+    Properties:
+      RouteTableId: !Ref EnterpriseSubnetRouteTable
+      SubnetId: !Ref Subnet3

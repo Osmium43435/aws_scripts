@@ -1,0 +1,68 @@
+# Create a read-only cross-account IAM role in CloudFormation, using a custom read-only Managed Policy:
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation template for enterprise IAM read-only role to deploy in each account, to be able to be assumed from the Management Account
+
+Parameters:
+# Create a parameter for the Management Account ID:
+  ManagementAccountId:
+    Type: String
+    Description: Management Account ID
+    MinLength: 12
+    MaxLength: 12
+    AllowedPattern: '^[0-9]+$'
+    ConstraintDescription: Must be a 12-digit number.
+# Create a parameter for the IAM role name to be created:
+  ReadOnlyRoleName:
+    Type: String
+    Description: IAM role name
+    MinLength: 1
+    MaxLength: 64
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters and underscores.
+# Create a parameter for the IAM policy name to be created:
+  PolicyName:
+    Type: String
+    Description: IAM policy name
+    MinLength: 1
+    MaxLength: 64
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters and underscores.
+# Create a parameter for the Management Account role's ARN, to include in the trust policy:
+  ManagementAccountRoleArn:
+    Type: String
+    Description: Management Account role ARN (including wildcards)
+    MinLength: 1
+    MaxLength: 2048
+    AllowedPattern: '^arn:aws:iam::[0-9]+:role/[a-zA-Z0-9_+=,.@\-]*+$'
+    ConstraintDescription: Must be a valid role ARN, including wildcards.
+
+Resources:
+# Create the IAM role:
+  ReadOnlyRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref ReadOnlyRoleName
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub '${ManagementAccountRoleArn}'
+            Action: sts:AssumeRole
+
+# Create an IAM policy allowing EC2 describe_security_groups, KMS list_keys, and WAFv2 list_web_acls permissions:
+  ReadOnlyPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Ref PolicyName
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - ec2:DescribeSecurityGroups
+              - kms:ListKeys
+              - wafv2:ListWebACLs
+            Resource: '*'
+      Roles:
+        - !Ref ReadOnlyRole
